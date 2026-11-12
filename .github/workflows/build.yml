@@ -1,0 +1,90 @@
+name: Build firmware
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      OPENWRT_COMMIT: f0a60ee
+      KERNEL_COMMIT: 14658d97220a06e34976d703e167073462390c78
+      KERNEL_ARCHIVE: linux-7.3.0-sy108-14658d97220a.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk gettext \
+            git libelf-dev libncurses-dev libssl-dev python3 python3-dev python3-setuptools \
+            python3-pyelftools rsync swig unzip zip zlib1g-dev pkg-config bison flex \
+            mtd-utils device-tree-compiler bc cpio kmod pigz
+
+      - name: Fetch sources
+        run: |
+          git clone https://github.com/jason-liu-4980/sy108-mainline.git /build/sy108
+          git clone --filter=blob:none https://github.com/openwrt/openwrt.git /build/openwrt
+          git -C /build/openwrt checkout $OPENWRT_COMMIT
+          git clone https://github.com/jason-liu-4980/linux-udx710.git /build/kernel
+          git -C /build/kernel checkout $KERNEL_COMMIT
+          # CRLF 清理（仓库内容经 Windows 中转时可能被污染）
+          find /build/sy108 -type f \
+            \( -name '*.mk' -o -name 'Makefile' -o -name 'series' -o -name '*.patch' -o -name '*.config' \) \
+            -exec sed -i 's/\r$//' {} +
+
+      - name: Inject SY108 integration and apply patches
+        run: |
+          rm -rf /build/openwrt/target/linux/sprd
+          cp -r /build/sy108/integration/openwrt/target/linux/sprd /build/openwrt/target/linux/sprd
+          cd /build/openwrt
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            case "$name" in \#*) continue ;; esac
+            git apply "/build/sy108/integration/openwrt/patches/$name"
+            echo "OK $name"
+          done < /build/sy108/integration/openwrt/series
+
+      - name: Update and install feeds
+        run: |
+          cd /build/openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Pack kernel archive
+        run: |
+          A=/build/openwrt/dl/$KERNEL_ARCHIVE
+          mkdir -p /tmp/kt /build/openwrt/dl
+          ln -s /build/kernel /tmp/kt/linux-7.3.0
+          (cd /tmp/kt && tar -chf - linux-7.3.0 | pigz -6 -p $(nproc) -n > "$A")
+          H=$(sha256sum "$A" | cut -d' ' -f1)
+          printf 'LINUX_VERSION-7.3 = .0\nLINUX_KERNEL_HASH-7.3.0 = %s\n' "$H" \
+            > /build/openwrt/target/linux/sprd/kernel-7.3
+
+      - name: Configure
+        run: |
+          cp config/zltx03-rootfs.config /build/openwrt/.config
+          sed -i 's/\r$//' /build/openwrt/.config
+          cd /build/openwrt
+          rm -rf tmp
+          make defconfig LINUX_SOURCE=$KERNEL_ARCHIVE
+          grep -E '^CONFIG_TARGET_(BOARD|SUBTARGET|PROFILE)' .config
+
+      - name: Build
+        run: |
+          cd /build/openwrt
+          export FORCE_UNSAFE_CONFIGURE=1
+          export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          make -j$(nproc) download LINUX_SOURCE=$KERNEL_ARCHIVE
+          make -j$(nproc) LINUX_SOURCE=$KERNEL_ARCHIVE
+
+      - name: Pack rootfs as raw UBIFS
+        run: bash scripts/pack-ci.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zltx03-openwrt-rootfs
+          path: /build/out/system.ubifs
+          if-no-files-found: error
