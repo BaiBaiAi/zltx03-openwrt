@@ -1,0 +1,4 @@
+config dropbear
+	option Interface 'usb'
+	option PasswordAuth 'off'
+	option RootPasswordAuth 'off'

@@ -22,15 +22,7 @@ cat "$ROOT/etc/os-release" 2>/dev/null | head -4
 echo
 
 mkdir -p "$OUT"
-rm -rf "$OUT/rootdir"
-cp -a "$ROOT" "$OUT/rootdir"
-
-# 这些 7.3 内核模块在原厂 4.14 内核上永远加载不了，删掉省空间
-if [ -d "$OUT/rootdir/lib/modules" ]; then
-    echo "== 删除不可用的 7.3 内核模块 =="
-    du -sh "$OUT/rootdir/lib/modules"
-    rm -rf "$OUT/rootdir/lib/modules"
-fi
+bash "$(dirname "$0")/stage-rootfs.sh" "$ROOT" "$OUT/rootdir"
 
 echo "== 打包前大小 =="
 du -sh "$OUT/rootdir"

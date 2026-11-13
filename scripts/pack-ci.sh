@@ -13,11 +13,7 @@ if [ -z "$ROOT" ]; then
 fi
 
 mkdir -p "$OUT"
-rm -rf "$OUT/rootdir"
-cp -a "$ROOT" "$OUT/rootdir"
-
-# 7.3 内核模块在原厂 4.14 内核上不可用，删除以省空间
-rm -rf "$OUT/rootdir/lib/modules"
+bash "$(dirname "$0")/stage-rootfs.sh" "$ROOT" "$OUT/rootdir"
 
 du -sh "$OUT/rootdir"
 mkfs.ubifs -m 2048 -e 126976 -c 285 -x zlib -r "$OUT/rootdir" -o "$OUT/system.ubifs"

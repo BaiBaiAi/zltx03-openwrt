@@ -1,0 +1,39 @@
+#!/bin/sh /etc/rc.common
+
+START=18
+
+start() {
+	local configfs=/sys/kernel/config
+	local gadget="$configfs/usb_gadget/zltx03"
+	local udc=29100000.dwc3
+	local config="$gadget/configs/b.1"
+	local rndis="$gadget/functions/rndis.gs4"
+	local pam_protocol=/sys/devices/platform/soc/soc:ipa/2b300000.pamu3/pamu3_protocol
+	local wait_seconds=10
+
+	while [ ! -d "/sys/class/udc/$udc" ] && [ "$wait_seconds" -gt 0 ]; do
+		sleep 1
+		wait_seconds=$((wait_seconds - 1))
+	done
+	[ -d "/sys/class/udc/$udc" ] || {
+		logger -t zltx03-usb "USB controller $udc did not appear"
+		return 1
+	}
+	[ -d "$configfs/usb_gadget" ] || mount -t configfs configfs "$configfs" || return 1
+	[ "$(cat "$gadget/UDC" 2>/dev/null)" = "$udc" ] && return 0
+
+	# Keep the stock RNDIS VID/PID and put the network function on MI_00.
+	mkdir -p "$gadget/strings/0x409" "$config/strings/0x409" "$rndis" || return 1
+	printf '0x1782\n' > "$gadget/idVendor" &&
+	printf '0x4056\n' > "$gadget/idProduct" &&
+	printf '0x0404\n' > "$gadget/bcdDevice" &&
+	printf 'ZLT X03 OpenWrt\n' > "$gadget/strings/0x409/product" &&
+	printf 'RNDIS\n' > "$config/strings/0x409/configuration" &&
+	printf '500\n' > "$config/MaxPower" &&
+	printf '0xc0\n' > "$config/bmAttributes" || return 1
+	if [ -w "$pam_protocol" ]; then
+		printf 'RNDIS\n' > "$pam_protocol" || return 1
+	fi
+	[ -L "$config/rndis" ] || ln -s "$rndis" "$config/rndis" || return 1
+	printf '%s\n' "$udc" > "$gadget/UDC"
+}
