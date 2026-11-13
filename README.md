@@ -62,8 +62,6 @@ config/
    （kernel.org 上没有 7.3.0 的官方 tar.xz）
 6. `git.openwrt.org` / WSL 直连 GitHub 不稳定：走本机代理
 
-## 启用云端构建
-
 `ci/build.yml` 是 GitHub Actions 工作流，已写好但未启用（推送 workflow 文件需要令牌具备 `workflow` 权限）。
 启用方法：`gh auth refresh -s workflow` 后，把 `ci/build.yml` 移到 `.github/workflows/build.yml` 再推送，即可在 Actions 页手动触发。
 
